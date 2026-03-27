@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: PSScriptAnalyzer
+    runs-on: ubuntu-latest
+    # TODO: Remove continue-on-error after Code Modernization milestone (#6-#11)
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $results = Invoke-ScriptAnalyzer -Path ./functions -Recurse -Severity Error,Warning
+          $results | Format-Table -AutoSize
+          if ($results.Count -gt 0) {
+            Write-Error "PSScriptAnalyzer found $($results.Count) issue(s)"
+            exit 1
+          }
+
+  validate-arm:
+    name: Validate ARM Template
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate JSON syntax
+        shell: pwsh
+        run: |
+          $template = Get-Content ./environment/azuredeploy.json -Raw
+          try {
+            $null = $template | ConvertFrom-Json -ErrorAction Stop
+            Write-Host "ARM template JSON is valid"
+          } catch {
+            Write-Error "Invalid JSON in azuredeploy.json: $_"
+            exit 1
+          }
+
+  test:
+    name: Pester Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Pester
+        shell: pwsh
+        run: Install-Module -Name Pester -Force -Scope CurrentUser -MinimumVersion 5.0
+
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          if (Test-Path ./tests) {
+            $config = New-PesterConfiguration
+            $config.Run.Path = './tests'
+            $config.Output.Verbosity = 'Detailed'
+            $config.TestResult.Enabled = $true
+            $config.TestResult.OutputPath = './test-results.xml'
+            Invoke-Pester -Configuration $config
+          } else {
+            Write-Host "No tests directory found — skipping"
+          }
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.xml
+          if-no-files-found: ignore
