@@ -1,0 +1,27 @@
+# Azure Functions
+bin/
+obj/
+.python_packages/
+functions.zip
+*.zip
+
+# Local settings (may contain connection strings)
+local.settings.json
+
+# PowerShell artifacts
+*.ps1xml
+
+# IDE
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Secrets
+*.pfx
+*.key
+*.pem
+
+# Claude Code local state
+.claude/
