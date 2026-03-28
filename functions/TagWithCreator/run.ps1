@@ -47,7 +47,7 @@ Write-Information "Caller: $caller"
 $resourceId = $eventGridEvent.data.resourceUri
 Write-Information "ResourceId: $resourceId"
 
-if (($null -eq $caller) -or ($null -eq $resourceId)) {
+if (($null -eq $caller) -or [string]::IsNullOrEmpty($resourceId)) {
     Write-Warning "ResourceId or Caller is null — exiting"
     exit
 }
@@ -79,7 +79,7 @@ try {
     $tags = Get-AzTag -ResourceId $resourceId
 }
 catch {
-    Write-Error "Failed to read tags for ${resourceId}: $_"
+    Write-Warning "Failed to read tags for ${resourceId}: $_"
     exit
 }
 
@@ -92,7 +92,7 @@ if ($tags) {
                     Write-Information "Added Creator tag with user: $caller"
                 }
                 catch {
-                    Write-Error "Failed to update tags on ${resourceId}: $_"
+                    Write-Warning "Failed to update tags on ${resourceId}: $_"
                 }
             }
             else {
@@ -105,7 +105,7 @@ if ($tags) {
                 Write-Information "Added Creator tag with user: $caller"
             }
             catch {
-                Write-Error "Failed to create tags on ${resourceId}: $_"
+                Write-Warning "Failed to create tags on ${resourceId}: $_"
             }
         }
     }
