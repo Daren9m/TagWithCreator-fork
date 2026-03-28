@@ -1,0 +1,28 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "storageAccountName": {
+            "value": "sttagcreatordev"
+        },
+        "appServicePlanName": {
+            "value": "plan-tagcreator-dev"
+        },
+        "appInsightsName": {
+            "value": "ai-tagcreator-dev"
+        },
+        "functionName": {
+            "value": "func-tagcreator-dev"
+        },
+        "environment": {
+            "value": "dev"
+        },
+        "tags": {
+            "value": {
+                "Project": "TagWithCreator",
+                "ManagedBy": "ARM",
+                "Environment": "dev"
+            }
+        }
+    }
+}
