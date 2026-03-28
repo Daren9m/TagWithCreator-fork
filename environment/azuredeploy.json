@@ -3,26 +3,80 @@
     "contentVersion": "1.0.0.0",
     "parameters": {
         "storageAccountName": {
-            "type": "string"
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 24,
+            "metadata": {
+                "description": "Name of the storage account used by the Function App"
+            }
         },
         "appServicePlanName": {
-            "type": "string"
+            "type": "string",
+            "metadata": {
+                "description": "Name of the consumption App Service Plan"
+            }
         },
         "appInsightsName": {
-            "type": "string"
+            "type": "string",
+            "metadata": {
+                "description": "Name of the Application Insights resource"
+            }
         },
         "functionName": {
-            "type": "string"
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 60,
+            "metadata": {
+                "description": "Name of the Azure Function App"
+            }
+        },
+        "logAnalyticsWorkspaceName": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Name of the Log Analytics workspace. Defaults to functionName-law if empty."
+            }
+        },
+        "environment": {
+            "type": "string",
+            "defaultValue": "dev",
+            "allowedValues": [
+                "dev",
+                "test",
+                "prod"
+            ],
+            "metadata": {
+                "description": "Deployment environment"
+            }
+        },
+        "tags": {
+            "type": "object",
+            "defaultValue": {
+                "Project": "TagWithCreator",
+                "ManagedBy": "ARM"
+            },
+            "metadata": {
+                "description": "Tags to apply to all resources"
+            }
+        },
+        "tagIgnorePatterns": {
+            "type": "string",
+            "defaultValue": "providers/Microsoft.Resources/deployments,providers/Microsoft.Resources/tags,providers/Microsoft.Network/frontdoor",
+            "metadata": {
+                "description": "Comma-separated list of resource provider patterns to skip tagging"
+            }
         }
     },
     "variables": {
+        "logAnalyticsName": "[if(empty(parameters('logAnalyticsWorkspaceName')), concat(parameters('functionName'), '-law'), parameters('logAnalyticsWorkspaceName'))]"
     },
     "resources": [
         {
             "name": "[parameters('storageAccountName')]",
             "type": "Microsoft.Storage/storageAccounts",
-            "apiVersion": "2019-06-01",
+            "apiVersion": "2023-05-01",
             "location": "[resourceGroup().location]",
+            "tags": "[parameters('tags')]",
             "kind": "StorageV2",
             "sku": {
                 "name": "Standard_LRS",
@@ -31,9 +85,10 @@
         },
         {
             "type": "Microsoft.Web/serverfarms",
-            "apiVersion": "2018-02-01",
+            "apiVersion": "2023-12-01",
             "name": "[parameters('appServicePlanName')]",
             "location": "[resourceGroup().location]",
+            "tags": "[parameters('tags')]",
             "sku": {
                 "name": "Y1",
                 "tier": "Dynamic",
@@ -43,24 +98,44 @@
             "properties": {}
         },
         {
-            "apiVersion": "2014-04-01",
-            "name": "[parameters('appInsightsName')]",
-            "type": "Microsoft.Insights/components",
+            "type": "Microsoft.OperationalInsights/workspaces",
+            "apiVersion": "2023-09-01",
+            "name": "[variables('logAnalyticsName')]",
             "location": "[resourceGroup().location]",
-            "tags": {},
+            "tags": "[parameters('tags')]",
             "properties": {
-                "applicationId": "[parameters('appInsightsName')]"
+                "sku": {
+                    "name": "PerGB2018"
+                },
+                "retentionInDays": 30
+            }
+        },
+        {
+            "type": "Microsoft.Insights/components",
+            "apiVersion": "2020-02-02",
+            "name": "[parameters('appInsightsName')]",
+            "location": "[resourceGroup().location]",
+            "tags": "[parameters('tags')]",
+            "kind": "web",
+            "dependsOn": [
+                "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]"
+            ],
+            "properties": {
+                "Application_Type": "web",
+                "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', variables('logAnalyticsName'))]"
             }
         },
         {
             "name": "[parameters('functionName')]",
             "type": "Microsoft.Web/sites",
-            "apiVersion": "2018-11-01",
+            "apiVersion": "2023-12-01",
             "location": "[resourceGroup().location]",
+            "tags": "[parameters('tags')]",
             "kind": "functionapp",
             "dependsOn": [
                 "[resourceId('Microsoft.Web/serverfarms', parameters('appServicePlanName'))]",
-                "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
+                "[resourceId('Microsoft.Insights/components', parameters('appInsightsName'))]"
             ],
             "properties": {
                 "httpsOnly": true,
@@ -69,24 +144,20 @@
                     "minTlsVersion": "1.2",
                     "appSettings": [
                         {
-                            "name": "AzureWebJobsDashboard",
-                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', parameters('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')),'2015-05-01-preview').key1)]"
-                        },
-                        {
                             "name": "AzureWebJobsStorage",
-                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', parameters('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')),'2015-05-01-preview').key1)]"
+                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', parameters('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2023-05-01').keys[0].value)]"
                         },
                         {
                             "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
-                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', parameters('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')),'2015-05-01-preview').key1)]"
+                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', parameters('storageAccountName'), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2023-05-01').keys[0].value)]"
                         },
                         {
                             "name": "FUNCTIONS_EXTENSION_VERSION",
                             "value": "~4"
                         },
                         {
-                            "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
-                            "value": "[reference(resourceId('microsoft.insights/components/', parameters('appInsightsName')), '2015-05-01').InstrumentationKey]"
+                            "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                            "value": "[reference(resourceId('Microsoft.Insights/components', parameters('appInsightsName')), '2020-02-02').ConnectionString]"
                         },
                         {
                             "name": "FUNCTIONS_WORKER_RUNTIME",
@@ -95,10 +166,13 @@
                         {
                             "name": "PSWorkerInProcConcurrencyUpperBound",
                             "value": "5"
+                        },
+                        {
+                            "name": "TAG_IGNORE_PATTERNS",
+                            "value": "[parameters('tagIgnorePatterns')]"
                         }
                     ],
                     "powerShellVersion": "7.4"
-
                 }
             },
             "identity": {
@@ -109,7 +183,7 @@
     "outputs": {
         "managedIdentityId": {
             "type": "string",
-            "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionName')), '2019-08-01', 'full').identity.principalId]"
+            "value": "[reference(resourceId('Microsoft.Web/sites', parameters('functionName')), '2023-12-01', 'full').identity.principalId]"
         }
     }
 }
