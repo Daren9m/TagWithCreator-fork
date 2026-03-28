@@ -10,8 +10,6 @@ jobs:
   lint:
     name: PSScriptAnalyzer
     runs-on: ubuntu-latest
-    # TODO: Remove continue-on-error after Code Modernization milestone (#6-#11)
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -22,7 +20,7 @@ jobs:
       - name: Run PSScriptAnalyzer
         shell: pwsh
         run: |
-          $results = Invoke-ScriptAnalyzer -Path ./functions -Recurse -Severity Error,Warning
+          $results = Invoke-ScriptAnalyzer -Path ./functions -Recurse -Settings ./PSScriptAnalyzerSettings.psd1
           $results | Format-Table -AutoSize
           if ($results.Count -gt 0) {
             Write-Error "PSScriptAnalyzer found $($results.Count) issue(s)"
