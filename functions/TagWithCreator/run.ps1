@@ -1,68 +1,118 @@
+<#
+.SYNOPSIS
+    Tags Azure resources with the identity of their creator.
+
+.DESCRIPTION
+    Event Grid triggered function that receives ResourceWriteSuccess events,
+    resolves the caller identity (UPN or Service Principal), and applies a
+    Creator tag to the resource. Skips resource types in the configurable
+    ignore list.
+
+.PARAMETER eventGridEvent
+    The Event Grid event object containing resource and caller data.
+
+.PARAMETER TriggerMetadata
+    Azure Functions trigger metadata (unused but required by runtime).
+#>
+[CmdletBinding()]
 param($eventGridEvent, $TriggerMetadata)
 
-#$caller = $eventGridEvent.data.claims.name
+$ErrorActionPreference = 'Stop'
+
+# --- Validate input ---
+if ($null -eq $eventGridEvent -or $null -eq $eventGridEvent.data) {
+    Write-Warning "Received null or malformed Event Grid event — exiting"
+    exit
+}
+
+# --- Resolve caller identity ---
 $caller = $eventGridEvent.data.claims."http://schemas.xmlsoap.org/ws/2005/05/identity/claims/upn"
 if ($null -eq $caller) {
     if ($eventGridEvent.data.authorization.evidence.principalType -eq "ServicePrincipal") {
-        $caller = (Get-AzADServicePrincipal -ObjectId $eventGridEvent.data.authorization.evidence.principalId).DisplayName
+        $principalId = $eventGridEvent.data.authorization.evidence.principalId
+        try {
+            $caller = (Get-AzADServicePrincipal -ObjectId $principalId).DisplayName
+        }
+        catch {
+            Write-Warning "Failed to resolve Service Principal display name: $_"
+        }
         if ($null -eq $caller) {
-            Write-Host "MSI may not have permission to read the applications from the directory"
-            $caller = $eventGridEvent.data.authorization.evidence.principalId
+            Write-Warning "Could not resolve display name for principal $principalId — using raw ID"
+            $caller = $principalId
         }
     }
 }
 
-Write-Host "Caller: $caller"
+Write-Information "Caller: $caller"
 $resourceId = $eventGridEvent.data.resourceUri
-Write-Host "ResourceId: $resourceId"
+Write-Information "ResourceId: $resourceId"
 
 if (($null -eq $caller) -or ($null -eq $resourceId)) {
-    Write-Host "ResourceId or Caller is null"
-    exit;
+    Write-Warning "ResourceId or Caller is null — exiting"
+    exit
 }
 
-$ignore = @(
-    "providers/Microsoft.Resources/deployments",
-    "providers/Microsoft.Resources/tags",
-    "providers/Microsoft.Network/frontdoor"
-)
+# --- Check ignore list ---
+$ignorePatterns = $env:TAG_IGNORE_PATTERNS
+if ($ignorePatterns) {
+    $ignore = $ignorePatterns -split ','
+}
+else {
+    $ignore = @(
+        "providers/Microsoft.Resources/deployments",
+        "providers/Microsoft.Resources/tags",
+        "providers/Microsoft.Network/frontdoor"
+    )
+}
 
 foreach ($case in $ignore) {
     if ($resourceId -match $case) {
-        Write-Host "Skipping event as resourceId ignorelist contains: $case"
-        exit;
+        Write-Information "Skipping event — resourceId matches ignore pattern: $case"
+        exit
     }
 }
-#Write-Host "Try add Creator tag with user: $caller"
 
-$newTag = @{
-    Creator = $caller
+# --- Apply Creator tag ---
+$newTag = @{ Creator = $caller }
+
+try {
+    $tags = Get-AzTag -ResourceId $resourceId
+}
+catch {
+    Write-Error "Failed to read tags for ${resourceId}: $_"
+    exit
 }
 
-$tags = (Get-AzTag -ResourceId $resourceId)
-
 if ($tags) {
-    # Tags supported?
     if ($tags.properties) {
-        # if null no tags?
         if ($tags.properties.TagsProperty) {
-            if (!($tags.properties.TagsProperty.ContainsKey('Creator')) ) {
-                Update-AzTag -ResourceId $resourceId -Operation Merge -Tag $newTag | Out-Null
-                Write-Host "Added Creator tag with user: $caller"
+            if (-not $tags.properties.TagsProperty.ContainsKey('Creator')) {
+                try {
+                    Update-AzTag -ResourceId $resourceId -Operation Merge -Tag $newTag | Out-Null
+                    Write-Information "Added Creator tag with user: $caller"
+                }
+                catch {
+                    Write-Error "Failed to update tags on ${resourceId}: $_"
+                }
             }
             else {
-                Write-Host "Creator tag already exists"
+                Write-Information "Creator tag already exists on $resourceId"
             }
         }
         else {
-            Write-Host "Added Creator tag with user: $caller"
-            New-AzTag -ResourceId $resourceId -Tag $newTag | Out-Null
+            try {
+                New-AzTag -ResourceId $resourceId -Tag $newTag | Out-Null
+                Write-Information "Added Creator tag with user: $caller"
+            }
+            catch {
+                Write-Error "Failed to create tags on ${resourceId}: $_"
+            }
         }
     }
     else {
-        Write-Host "WARNNG! Does $resourceId not support tags? (`$tags.properties is null)"
+        Write-Warning "Resource $resourceId may not support tags (`$tags.properties is null)"
     }
 }
 else {
-    Write-Host "$resourceId does not support tags"
+    Write-Warning "$resourceId does not support tags"
 }

@@ -1,6 +1,7 @@
 {
   "IsEncrypted": false,
   "Values": {
-    "FUNCTIONS_WORKER_RUNTIME": "powershell"
+    "FUNCTIONS_WORKER_RUNTIME": "powershell",
+    "TAG_IGNORE_PATTERNS": "providers/Microsoft.Resources/deployments,providers/Microsoft.Resources/tags,providers/Microsoft.Network/frontdoor"
   }
 }

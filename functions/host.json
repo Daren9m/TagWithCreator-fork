@@ -6,5 +6,10 @@
   },
   "managedDependency": {
     "enabled": true
+  },
+  "logging": {
+    "logLevel": {
+      "Function": "Information"
+    }
   }
 }
