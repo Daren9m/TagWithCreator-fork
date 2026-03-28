@@ -1,0 +1,52 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - test
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy ARM template
+        shell: pwsh
+        run: |
+          $params = Get-Content ./environment/parameters.${{ inputs.environment }}.json | ConvertFrom-Json -AsHashtable
+          New-AzResourceGroupDeployment `
+            -ResourceGroupName $params.parameters.resourceGroupName.value `
+            -TemplateFile ./environment/azuredeploy.json `
+            -TemplateParameterFile ./environment/parameters.${{ inputs.environment }}.json `
+            -Verbose
+
+      - name: Package function code
+        shell: pwsh
+        run: Compress-Archive -Path ./functions/* -DestinationPath ./functions.zip -Force
+
+      - name: Deploy function code
+        uses: azure/functions-action@v2
+        with:
+          app-name: ${{ vars.FUNCTION_APP_NAME }}
+          package: ./functions.zip
